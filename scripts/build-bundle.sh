@@ -56,7 +56,7 @@ fi
 download-ci-llvm = true
 EOF_BOOTSTRAP
 
-    python3 x.py build src/tools/rustfmt
+    python3 x.py build --stage 1 src/tools/rustfmt
 )
 
 rustfmt_bin="$source_root/build/$TARGET/stage1/bin/rustfmt"
