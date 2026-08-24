@@ -1,0 +1,43 @@
+name: Build rust-format bundle
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes build-essential cmake curl git libssl-dev ninja-build pkg-config python3 xz-utils
+
+      - name: Build and validate bundle
+        run: ./scripts/build-bundle.sh
+
+      - name: Show bundle metadata
+        run: |
+          cat dist/rust-format-tools.tar.xz.sha256
+          ls -lh dist/rust-format-tools.tar.xz
+
+      - name: Upload bundle
+        uses: actions/upload-artifact@v7
+        with:
+          path: dist/rust-format-tools.tar.xz
+          archive: false
+          if-no-files-found: error
+
+      - name: Upload checksum
+        uses: actions/upload-artifact@v7
+        with:
+          path: dist/rust-format-tools.tar.xz.sha256
+          archive: false
+          if-no-files-found: error
