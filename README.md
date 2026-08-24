@@ -14,7 +14,7 @@ On a supported x86-64 Linux host with the prerequisites installed:
 ./scripts/build-bundle.sh
 ```
 
-The script downloads and verifies the Rust 1.97.1 source and Cargo component from `static.rust-lang.org`, applies `patches/rustfmt-direct-rustc-crates.patch`, builds only rustfmt/cargo-fmt, assembles the runtime payload, runs isolated formatting tests with a deliberately invalid `RUSTC`, and writes:
+The script downloads and verifies the Rust 1.97.1 source and Cargo component from `static.rust-lang.org`, applies `patches/rustfmt-direct-rustc-crates.patch`, configures Rust bootstrap with `llvm.download-ci-llvm = true` so it reuses the matching Rust CI LLVM artifacts instead of building LLVM locally, builds rustfmt/cargo-fmt, assembles the runtime payload, runs isolated formatting tests with a deliberately invalid `RUSTC`, and writes:
 
 ```text
 dist/rust-format-tools.tar.xz

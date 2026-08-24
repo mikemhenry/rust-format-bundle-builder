@@ -48,6 +48,14 @@ fi
     cd "$source_root"
     git apply --check "$repo_root/patches/rustfmt-direct-rustc-crates.patch"
     git apply "$repo_root/patches/rustfmt-direct-rustc-crates.patch"
+
+    # rustfmt does not need a locally built LLVM. Reuse the matching LLVM
+    # artifacts produced by Rust CI instead of spending CI time rebuilding LLVM.
+    cat > bootstrap.toml <<'EOF_BOOTSTRAP'
+[llvm]
+download-ci-llvm = true
+EOF_BOOTSTRAP
+
     python3 x.py build src/tools/rustfmt
 )
 
