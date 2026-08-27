@@ -142,10 +142,52 @@ source_patch="$repo_root/patches/rustfmt-direct-rustc-crates.patch"
     export CARGO_HOME="$cargo_home"
     export CARGO_TARGET_DIR="$rustfmt_target"
     export RUSTC="$toolchain_dir/bin/rustc"
-    export CFG_RELEASE_CHANNEL=stable
     export GIT_CEILING_DIRECTORIES="$source_root"
     export RUSTC_BOOTSTRAP=1
     unset RUSTUP_HOME RUSTUP_TOOLCHAIN RUSTC_WRAPPER RUSTFLAGS CARGO_ENCODED_RUSTFLAGS
+
+    # Compiler-private crates are normally built through bootstrap, which
+    # supplies release/host metadata consumed with env!() at compile time.
+    # Direct Cargo intentionally bypasses bootstrap, so reproduce that
+    # metadata from the pinned official release compiler instead of adding
+    # variables reactively as individual compiler crates request them.
+    rustc_verbose=$($RUSTC --version --verbose)
+    cfg_ver_hash=$(awk -F': ' '/^commit-hash:/ {print $2}' <<< "$rustc_verbose")
+    cfg_ver_date=$(awk -F': ' '/^commit-date:/ {print $2}' <<< "$rustc_verbose")
+    cfg_release=$(awk -F': ' '/^release:/ {print $2}' <<< "$rustc_verbose")
+    cfg_host=$(awk -F': ' '/^host:/ {print $2}' <<< "$rustc_verbose")
+    cfg_short_commit=${cfg_ver_hash:0:9}
+    cfg_version=${build_rustc_version#rustc }
+
+    if [[ "$cfg_release" != "$RUST_VERSION" ]]; then
+        echo "unexpected rustc release metadata: $cfg_release" >&2
+        exit 1
+    fi
+    if [[ "$cfg_ver_hash" != "$RUST_COMMIT" ]]; then
+        echo "unexpected rustc commit metadata: $cfg_ver_hash" >&2
+        exit 1
+    fi
+    if [[ "$cfg_host" != "$TARGET" ]]; then
+        echo "unexpected rustc host metadata: $cfg_host" >&2
+        exit 1
+    fi
+    if [[ -z "$cfg_ver_date" ]]; then
+        echo "rustc did not report commit-date metadata" >&2
+        exit 1
+    fi
+
+    export CFG_COMMIT_DATE="$cfg_ver_date"
+    export CFG_COMMIT_HASH="$cfg_ver_hash"
+    export CFG_COMPILER_BUILD_TRIPLE="$cfg_host"
+    export CFG_COMPILER_HOST_TRIPLE="$cfg_host"
+    export CFG_RELEASE="$cfg_release"
+    export CFG_RELEASE_CHANNEL=stable
+    export CFG_RELEASE_NUM="$RUST_VERSION"
+    export CFG_SHORT_COMMIT_HASH="$cfg_short_commit"
+    export CFG_VERSION="$cfg_version"
+    export CFG_VER_DATE="$cfg_ver_date"
+    export CFG_VER_HASH="$cfg_ver_hash"
+    export CFG_VIRTUAL_RUST_SOURCE_BASE_DIR="/rustc/$cfg_ver_hash"
 
     resolved_rustc=$(command -v rustc)
     resolved_cargo=$(command -v cargo)
