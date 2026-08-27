@@ -18,7 +18,7 @@ jobs:
       - name: Install build prerequisites
         run: |
           sudo apt-get update
-          sudo apt-get install --yes build-essential curl git xz-utils
+          sudo apt-get install --yes build-essential curl git patch xz-utils
 
       - name: Build and validate bundle
         run: ./scripts/build-bundle.sh

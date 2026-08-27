@@ -83,10 +83,51 @@ if [[ "$build_cargo_version" != cargo\ $RUST_VERSION* ]]; then
     exit 1
 fi
 
+source_patch="$repo_root/patches/rustfmt-direct-rustc-crates.patch"
 (
     cd "$source_root"
-    git apply --check "$repo_root/patches/rustfmt-direct-rustc-crates.patch"
-    git apply "$repo_root/patches/rustfmt-direct-rustc-crates.patch"
+
+    # The extracted Rust source lives underneath this builder repository's
+    # work directory. Avoid `git apply` here: Git can discover the enclosing
+    # builder worktree, which makes the patch target ambiguous. Apply the
+    # source patch directly to the extracted tree instead.
+    patch --dry-run --batch --forward -p1 < "$source_patch"
+    patch --batch --forward -p1 < "$source_patch"
+
+    # Fail before the expensive Cargo build if the portable-linkage
+    # transformation did not actually land. The stock rustfmt source loads
+    # compiler-private crates from the sysroot and explicitly pulls in
+    # rustc_driver; our build must instead use the checked-in path
+    # dependencies and must not reference rustc_driver.
+    if grep -Eq '^extern crate (rustc_ast|rustc_ast_pretty|rustc_data_structures|rustc_errors|rustc_expand|rustc_parse|rustc_session|rustc_span|thin_vec|rustc_driver);' \
+        src/tools/rustfmt/src/lib.rs; then
+        echo "rustfmt source patch did not remove sysroot extern-crate loading" >&2
+        sed -n '1,35p' src/tools/rustfmt/src/lib.rs >&2
+        exit 1
+    fi
+    if grep -q 'rustc_driver' src/tools/rustfmt/src/bin/main.rs; then
+        echo "rustfmt source patch did not remove rustc_driver from bin/main.rs" >&2
+        exit 1
+    fi
+    for dependency in \
+        rustc_ast \
+        rustc_ast_pretty \
+        rustc_data_structures \
+        rustc_errors \
+        rustc_expand \
+        rustc_parse \
+        rustc_session \
+        rustc_span; do
+        expected_path_line="$dependency = { path = \"../../../compiler/$dependency\" }"
+        if ! grep -Fq "$expected_path_line" src/tools/rustfmt/Cargo.toml; then
+            echo "rustfmt source patch did not add path dependency: $dependency" >&2
+            exit 1
+        fi
+    done
+    if ! grep -Fq 'thin-vec = "0.2.15"' src/tools/rustfmt/Cargo.toml; then
+        echo "rustfmt source patch did not add thin-vec dependency" >&2
+        exit 1
+    fi
 
     # The patched rustfmt uses unstable compiler-private crates as ordinary
     # path dependencies. RUSTC_BOOTSTRAP permits those in this controlled
