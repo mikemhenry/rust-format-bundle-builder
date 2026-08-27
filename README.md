@@ -27,7 +27,7 @@ The `.sha256` sidecar contains the archive's relative filename, so a downloaded 
 
 `.github/workflows/build.yml` runs the same build on `ubuntu-22.04` for pushes, pull requests, and manual dispatches, then uploads the `.tar.xz` and checksum as unwrapped GitHub Actions artifacts.
 
-The workflow uses `actions/checkout@v7` and `actions/upload-artifact@v7`. GitHub's current checkout releases include v7, and upload-artifact v7 supports uploading a single file without wrapping it in an additional ZIP.
+The workflow pins `actions/checkout` and `actions/upload-artifact` to full commit SHAs, with the corresponding release versions kept in comments for reviewability. `.github/dependabot.yml` checks GitHub Actions dependencies quarterly and proposes updates to those immutable pins.
 
 ## Validation
 
