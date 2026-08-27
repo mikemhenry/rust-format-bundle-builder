@@ -18,7 +18,7 @@ jobs:
       - name: Install build prerequisites
         run: |
           sudo apt-get update
-          sudo apt-get install --yes build-essential cmake curl git libssl-dev ninja-build pkg-config python3 xz-utils
+          sudo apt-get install --yes build-essential curl git xz-utils
 
       - name: Build and validate bundle
         run: ./scripts/build-bundle.sh

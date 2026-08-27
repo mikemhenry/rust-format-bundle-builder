@@ -14,7 +14,7 @@ On a supported x86-64 Linux host with the prerequisites installed:
 ./scripts/build-bundle.sh
 ```
 
-The script downloads and verifies the Rust 1.97.1 source and Cargo component from `static.rust-lang.org`, applies `patches/rustfmt-direct-rustc-crates.patch`, configures Rust bootstrap with `llvm.download-ci-llvm = true` so it reuses the matching Rust CI LLVM artifacts instead of building LLVM locally, builds stage1 rustfmt/cargo-fmt, assembles the runtime payload, runs isolated formatting tests with a deliberately invalid `RUSTC`, and writes:
+The script downloads and verifies the Rust 1.97.1 source plus the matching official rustc, standard-library, and Cargo components from `static.rust-lang.org`, applies `patches/rustfmt-direct-rustc-crates.patch`, and builds rustfmt/cargo-fmt directly with that pinned release toolchain. It intentionally bypasses `x.py` because Rust bootstrap classifies rustfmt as a `ToolRustcPrivate` tool and links it against compiler artifacts, which would recreate the `rustc_driver`/LLVM runtime dependency this bundle is designed to remove. The script then assembles the runtime payload, runs isolated formatting tests with a deliberately invalid `RUSTC`, and writes:
 
 ```text
 dist/rust-format-tools.tar.xz
@@ -46,7 +46,7 @@ You can validate an existing archive locally:
 
 ## Reproducibility boundary
 
-This repository pins the Rust version and target, verifies official upstream download checksums, checks in the complete source patch, normalizes archive metadata, and uses single-threaded XZ output.
+This repository pins the Rust version and target, verifies the official source/compiler/standard-library/Cargo component checksums, checks in the complete source patch, records the build-tool versions, normalizes archive metadata, and uses single-threaded XZ output.
 
 It is **not yet a promise of byte-for-byte reproducibility across time**. In particular, GitHub's `ubuntu-22.04` runner image and the `libgcc_s.so.1` copied from that runner can receive updates. The first goal is a repeatable, auditable functional build for the Skill. A future hardening pass can pin the build image/runtime library if exact bit reproducibility becomes useful.
 

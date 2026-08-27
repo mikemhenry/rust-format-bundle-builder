@@ -10,9 +10,11 @@ dist_dir=${DIST_DIR:-"$repo_root/dist"}
 bundle_name=rust-format-tools
 bundle_dir="$work_dir/$bundle_name"
 archive="$dist_dir/$bundle_name.tar.xz"
+toolchain_dir="$work_dir/rust-$RUST_VERSION-$TARGET-toolchain"
+rustfmt_target="$work_dir/rustfmt-target"
 
 mkdir -p "$work_dir/downloads" "$dist_dir"
-rm -rf "$bundle_dir"
+rm -rf "$bundle_dir" "$toolchain_dir" "$rustfmt_target"
 mkdir -p "$bundle_dir/bin" "$bundle_dir/lib" "$bundle_dir/LICENSES"
 
 fetch_verified() {
@@ -31,10 +33,27 @@ fetch_verified() {
     )
 }
 
+install_component() {
+    local filename=$1
+    local component_root="$work_dir/${filename%.tar.xz}"
+
+    rm -rf "$component_root"
+    tar -C "$work_dir" -xf "$work_dir/downloads/$filename"
+    if [[ ! -x "$component_root/install.sh" ]]; then
+        echo "expected installer not found: $component_root/install.sh" >&2
+        exit 1
+    fi
+    "$component_root/install.sh" --prefix="$toolchain_dir" --disable-ldconfig
+    rm -rf "$component_root"
+}
+
 source_archive="rustc-${RUST_VERSION}-src.tar.xz"
+rustc_archive="rustc-${RUST_VERSION}-${TARGET}.tar.xz"
+rust_std_archive="rust-std-${RUST_VERSION}-${TARGET}.tar.xz"
 cargo_archive="cargo-${RUST_VERSION}-${TARGET}.tar.xz"
-fetch_verified "$source_archive"
-fetch_verified "$cargo_archive"
+for filename in "$source_archive" "$rustc_archive" "$rust_std_archive" "$cargo_archive"; do
+    fetch_verified "$filename"
+done
 
 source_root="$work_dir/rustc-${RUST_VERSION}-src"
 rm -rf "$source_root"
@@ -44,23 +63,50 @@ if [[ ! -d "$source_root" ]]; then
     exit 1
 fi
 
+# Use the official release compiler only as a build tool. Building rustfmt via
+# x.py would classify it as ToolRustcPrivate and deliberately link it against
+# compiler artifacts from a bootstrapped sysroot, recreating the rustc_driver
+# runtime dependency that this bundle is designed to avoid.
+install_component "$rustc_archive"
+install_component "$rust_std_archive"
+install_component "$cargo_archive"
+
+build_rustc_version=$($toolchain_dir/bin/rustc --version)
+build_cargo_version=$($toolchain_dir/bin/cargo --version)
+if [[ "$build_rustc_version" != rustc\ $RUST_VERSION* ]]; then
+    echo "unexpected build rustc version: $build_rustc_version" >&2
+    exit 1
+fi
+if [[ "$build_cargo_version" != cargo\ $RUST_VERSION* ]]; then
+    echo "unexpected build Cargo version: $build_cargo_version" >&2
+    exit 1
+fi
+
 (
     cd "$source_root"
     git apply --check "$repo_root/patches/rustfmt-direct-rustc-crates.patch"
     git apply "$repo_root/patches/rustfmt-direct-rustc-crates.patch"
 
-    # rustfmt does not need a locally built LLVM. Reuse the matching LLVM
-    # artifacts produced by Rust CI instead of spending CI time rebuilding LLVM.
-    cat > bootstrap.toml <<'EOF_BOOTSTRAP'
-[llvm]
-download-ci-llvm = true
-EOF_BOOTSTRAP
-
-    python3 x.py build --stage 1 src/tools/rustfmt
+    # The patched rustfmt uses unstable compiler-private crates as ordinary
+    # path dependencies. RUSTC_BOOTSTRAP permits those in this controlled
+    # in-tree build. Keep git discovery inside the extracted source tree so
+    # rustfmt's build.rs cannot accidentally report the builder repository's
+    # commit as Rust provenance.
+    env \
+        CARGO_TARGET_DIR="$rustfmt_target" \
+        CFG_RELEASE_CHANNEL=stable \
+        GIT_CEILING_DIRECTORIES="$source_root" \
+        RUSTC_BOOTSTRAP=1 \
+        "$toolchain_dir/bin/cargo" build \
+            --locked \
+            --release \
+            --manifest-path src/tools/rustfmt/Cargo.toml \
+            --bin rustfmt \
+            --bin cargo-fmt
 )
 
-rustfmt_bin="$source_root/build/$TARGET/stage1/bin/rustfmt"
-cargo_fmt_bin="$source_root/build/$TARGET/stage1/bin/cargo-fmt"
+rustfmt_bin="$rustfmt_target/release/rustfmt"
+cargo_fmt_bin="$rustfmt_target/release/cargo-fmt"
 for file in "$rustfmt_bin" "$cargo_fmt_bin"; do
     if [[ ! -x "$file" ]]; then
         echo "expected built executable not found: $file" >&2
@@ -68,16 +114,7 @@ for file in "$rustfmt_bin" "$cargo_fmt_bin"; do
     fi
 done
 
-cargo_root="$work_dir/cargo-${RUST_VERSION}-${TARGET}"
-rm -rf "$cargo_root"
-tar -C "$work_dir" -xf "$work_dir/downloads/$cargo_archive"
-cargo_bin=$(find "$cargo_root" -type f -path '*/cargo/bin/cargo' -perm -u+x -print -quit)
-if [[ -z "$cargo_bin" ]]; then
-    echo "could not locate cargo executable in $cargo_archive" >&2
-    exit 1
-fi
-
-cp "$cargo_bin" "$bundle_dir/bin/cargo"
+cp "$toolchain_dir/bin/cargo" "$bundle_dir/bin/cargo"
 cp "$cargo_fmt_bin" "$bundle_dir/bin/cargo-fmt"
 cp "$rustfmt_bin" "$bundle_dir/bin/rustfmt"
 strip --strip-unneeded "$bundle_dir/bin/cargo" "$bundle_dir/bin/cargo-fmt" "$bundle_dir/bin/rustfmt"
@@ -96,17 +133,19 @@ if [[ -f /usr/share/doc/libgcc-s1/copyright ]]; then
 fi
 
 source_sha=$(awk '{print $1}' "$work_dir/downloads/$source_archive.sha256")
+rustc_sha=$(awk '{print $1}' "$work_dir/downloads/$rustc_archive.sha256")
+rust_std_sha=$(awk '{print $1}' "$work_dir/downloads/$rust_std_archive.sha256")
 cargo_sha=$(awk '{print $1}' "$work_dir/downloads/$cargo_archive.sha256")
 patch_sha=$(sha256sum "$repo_root/patches/rustfmt-direct-rustc-crates.patch" | awk '{print $1}')
 
 cargo_version=$($bundle_dir/bin/cargo --version)
 rustfmt_version=$(LD_LIBRARY_PATH="$bundle_dir/lib" "$bundle_dir/bin/rustfmt" --version)
 if [[ "$cargo_version" != cargo\ $RUST_VERSION* ]]; then
-    echo "unexpected Cargo version: $cargo_version" >&2
+    echo "unexpected bundled Cargo version: $cargo_version" >&2
     exit 1
 fi
-if [[ "$rustfmt_version" != *"${RUST_COMMIT:0:10}"* ]]; then
-    echo "rustfmt does not report expected Rust commit ${RUST_COMMIT:0:10}: $rustfmt_version" >&2
+if [[ "$rustfmt_version" != rustfmt\ 1.9.0* ]]; then
+    echo "unexpected rustfmt version: $rustfmt_version" >&2
     exit 1
 fi
 
@@ -116,12 +155,18 @@ rust_commit=$RUST_COMMIT
 target=$TARGET
 rust_source_url=$RUST_DIST_BASE/$source_archive
 rust_source_sha256=$source_sha
+build_rustc_url=$RUST_DIST_BASE/$rustc_archive
+build_rustc_sha256=$rustc_sha
+build_rust_std_url=$RUST_DIST_BASE/$rust_std_archive
+build_rust_std_sha256=$rust_std_sha
 cargo_component_url=$RUST_DIST_BASE/$cargo_archive
 cargo_component_sha256=$cargo_sha
 patch_sha256=$patch_sha
+build_rustc_version=$build_rustc_version
+build_cargo_version=$build_cargo_version
 cargo_version=$cargo_version
 rustfmt_version=$rustfmt_version
-notes=rustfmt is built from Rust $RUST_VERSION with the checked-in patch that directly links compiler-private crates and removes the rustc_driver/LLVM runtime dependency.
+notes=rustfmt is built directly with the official Rust $RUST_VERSION release toolchain from the checked-in patched source; x.py/bootstrap is intentionally not used so rustfmt does not inherit the ToolRustcPrivate rustc_driver/LLVM runtime linkage.
 EOF_INFO
 
 (
