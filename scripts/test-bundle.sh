@@ -33,9 +33,22 @@ for tool in cargo cargo-fmt rustfmt; do
         echo "$tool has an unresolved runtime dependency" >&2
         exit 1
     fi
-    if grep -Eq 'rustc_driver|libLLVM|\.pixi|/build/|/_work/' <<<"$linkage"; then
+    # Reject compiler/build-environment libraries by identity, not by the
+    # absolute directory printed by ldd.  The bundle itself is assembled under
+    # _work/ in CI, so a blanket /_work/ check incorrectly rejects the bundled
+    # libgcc_s.so.1 that we intentionally ship.
+    if grep -Eq 'rustc_driver|libLLVM|\.pixi/|rustfmt-target/|rustc-[^/]+-src/(build|target)/' <<<"$linkage"; then
         echo "$linkage" >&2
         echo "$tool has an unexpected build/toolchain runtime dependency" >&2
+        exit 1
+    fi
+
+    # If the executable needs libgcc_s, make sure the isolated validation run
+    # resolves it from the bundle rather than from the host system.
+    if grep -q 'libgcc_s\.so\.1 =>' <<<"$linkage" && \
+       ! grep -Fq "libgcc_s.so.1 => $bundle/lib/libgcc_s.so.1" <<<"$linkage"; then
+        echo "$linkage" >&2
+        echo "$tool did not resolve libgcc_s.so.1 from the bundle" >&2
         exit 1
     fi
 done
