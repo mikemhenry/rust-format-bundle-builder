@@ -12,10 +12,11 @@ bundle_dir="$work_dir/$bundle_name"
 archive="$dist_dir/$bundle_name.tar.xz"
 toolchain_dir="$work_dir/rust-$RUST_VERSION-$TARGET-toolchain"
 rustfmt_target="$work_dir/rustfmt-target"
+cargo_home="$work_dir/cargo-home"
 
 mkdir -p "$work_dir/downloads" "$dist_dir"
-rm -rf "$bundle_dir" "$toolchain_dir" "$rustfmt_target"
-mkdir -p "$bundle_dir/bin" "$bundle_dir/lib" "$bundle_dir/LICENSES"
+rm -rf "$bundle_dir" "$toolchain_dir" "$rustfmt_target" "$cargo_home"
+mkdir -p "$bundle_dir/bin" "$bundle_dir/lib" "$bundle_dir/LICENSES" "$cargo_home"
 
 fetch_verified() {
     local filename=$1
@@ -92,17 +93,46 @@ fi
     # in-tree build. Keep git discovery inside the extracted source tree so
     # rustfmt's build.rs cannot accidentally report the builder repository's
     # commit as Rust provenance.
-    env \
-        CARGO_TARGET_DIR="$rustfmt_target" \
-        CFG_RELEASE_CHANNEL=stable \
-        GIT_CEILING_DIRECTORIES="$source_root" \
-        RUSTC_BOOTSTRAP=1 \
-        "$toolchain_dir/bin/cargo" build \
-            --locked \
-            --release \
-            --manifest-path src/tools/rustfmt/Cargo.toml \
-            --bin rustfmt \
-            --bin cargo-fmt
+    # Do not let Cargo discover the GitHub runner's rustup shims. The Rust
+    # source tree contains rust-toolchain.toml, so invoking a rustup-proxied
+    # `rustc` from here would make rustup try to materialize/update that
+    # toolchain instead of using the release compiler installed above.
+    export PATH="$toolchain_dir/bin:/usr/bin:/bin"
+    export CARGO_HOME="$cargo_home"
+    export CARGO_TARGET_DIR="$rustfmt_target"
+    export RUSTC="$toolchain_dir/bin/rustc"
+    export CFG_RELEASE_CHANNEL=stable
+    export GIT_CEILING_DIRECTORIES="$source_root"
+    export RUSTC_BOOTSTRAP=1
+    unset RUSTUP_HOME RUSTUP_TOOLCHAIN RUSTC_WRAPPER RUSTFLAGS CARGO_ENCODED_RUSTFLAGS
+
+    resolved_rustc=$(command -v rustc)
+    resolved_cargo=$(command -v cargo)
+    if [[ "$resolved_rustc" != "$toolchain_dir/bin/rustc" ]]; then
+        echo "unexpected rustc on PATH: $resolved_rustc" >&2
+        exit 1
+    fi
+    if [[ "$resolved_cargo" != "$toolchain_dir/bin/cargo" ]]; then
+        echo "unexpected Cargo on PATH: $resolved_cargo" >&2
+        exit 1
+    fi
+
+    # Fail fast if the private compiler + standard library cannot link a normal
+    # host executable. This is much cheaper than discovering a toolchain
+    # installation problem halfway through the rustfmt build.
+    probe_src="$work_dir/toolchain-probe.rs"
+    probe_bin="$work_dir/toolchain-probe"
+    printf 'fn main() { println!("toolchain-ok"); }\n' > "$probe_src"
+    "$RUSTC" "$probe_src" -o "$probe_bin"
+    [[ "$($probe_bin)" == toolchain-ok ]]
+    rm -f "$probe_src" "$probe_bin"
+
+    cargo build \
+        --locked \
+        --release \
+        --manifest-path src/tools/rustfmt/Cargo.toml \
+        --bin rustfmt \
+        --bin cargo-fmt
 )
 
 rustfmt_bin="$rustfmt_target/release/rustfmt"
