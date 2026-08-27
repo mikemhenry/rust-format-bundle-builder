@@ -146,6 +146,12 @@ source_patch="$repo_root/patches/rustfmt-direct-rustc-crates.patch"
     export RUSTC_BOOTSTRAP=1
     unset RUSTUP_HOME RUSTUP_TOOLCHAIN RUSTC_WRAPPER RUSTFLAGS CARGO_ENCODED_RUSTFLAGS
 
+    # Compiler crates use cfg(bootstrap) in a few diagnostic/doc attributes.
+    # We are not a bootstrap build, so do not define the cfg; only teach
+    # rustc's check-cfg lint that the name is expected. This is diagnostic-only
+    # and leaves cfg(bootstrap) false.
+    export RUSTFLAGS='--check-cfg=cfg(bootstrap)'
+
     # Compiler-private crates are normally built through bootstrap, which
     # supplies release/host metadata consumed with env!() at compile time.
     # Direct Cargo intentionally bypasses bootstrap, so reproduce that
@@ -293,7 +299,14 @@ find "$bundle_dir" -exec touch -h -d "@$SOURCE_DATE_EPOCH" {} +
 rm -f "$archive" "$archive.sha256"
 tar --sort=name --mtime="@$SOURCE_DATE_EPOCH" --owner=0 --group=0 --numeric-owner \
     -C "$work_dir" -c "$bundle_name" | xz -6 -T1 > "$archive"
-sha256sum "$archive" > "$archive.sha256"
+(
+    cd "$dist_dir"
+    sha256sum "$bundle_name.tar.xz" > "$bundle_name.tar.xz.sha256"
+)
+
+# Validate the exact distributable archive after the tar/xz round trip, not
+# only the staging directory used to create it.
+"$repo_root/scripts/test-bundle.sh" "$archive"
 
 bytes=$(stat -c %s "$archive")
 printf 'built %s (%s bytes)\n' "$archive" "$bytes"

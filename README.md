@@ -14,14 +14,14 @@ On a supported x86-64 Linux host with the prerequisites installed:
 ./scripts/build-bundle.sh
 ```
 
-The script downloads and verifies the Rust 1.97.1 source plus the matching official rustc, standard-library, and Cargo components from `static.rust-lang.org`, applies `patches/rustfmt-direct-rustc-crates.patch`, and builds rustfmt/cargo-fmt directly with that pinned release toolchain. The build uses an isolated `CARGO_HOME`, explicitly pins `RUSTC` and `PATH` to the private toolchain, and reconstructs the `CFG_*` release/host metadata that Rust bootstrap normally supplies to compiler crates, deriving and validating those values from the pinned compiler. It intentionally bypasses `x.py` because Rust bootstrap classifies rustfmt as a `ToolRustcPrivate` tool and links it against compiler artifacts, which would recreate the `rustc_driver`/LLVM runtime dependency this bundle is designed to remove. The script then assembles the runtime payload, runs isolated formatting tests with a deliberately invalid `RUSTC`, and writes:
+The script downloads and verifies the Rust 1.97.1 source plus the matching official rustc, standard-library, and Cargo components from `static.rust-lang.org`, applies `patches/rustfmt-direct-rustc-crates.patch`, and builds rustfmt/cargo-fmt directly with that pinned release toolchain. The build uses an isolated `CARGO_HOME`, explicitly pins `RUSTC` and `PATH` to the private toolchain, reconstructs the `CFG_*` release/host metadata that Rust bootstrap normally supplies to compiler crates, and recognizes (without enabling) the `bootstrap` cfg name used by compiler-crate diagnostics. It intentionally bypasses `x.py` because Rust bootstrap classifies rustfmt as a `ToolRustcPrivate` tool and links it against compiler artifacts, which would recreate the `rustc_driver`/LLVM runtime dependency this bundle is designed to remove. The script then assembles the runtime payload, runs isolated formatting tests with a deliberately invalid `RUSTC`, packages the archive, round-trip validates that exact archive, and writes:
 
 ```text
 dist/rust-format-tools.tar.xz
 dist/rust-format-tools.tar.xz.sha256
 ```
 
-The final archive is rejected if it exceeds 25,000,000 bytes.
+The `.sha256` sidecar contains the archive's relative filename, so a downloaded pair can be checked directly with `sha256sum -c rust-format-tools.tar.xz.sha256`. The final archive is rejected if it exceeds 25,000,000 bytes.
 
 ## CI
 
@@ -31,7 +31,7 @@ The workflow uses `actions/checkout@v7` and `actions/upload-artifact@v7`. GitHub
 
 ## Validation
 
-The bundle test runs with an almost empty environment, an empty `HOME`, and `RUSTC=/definitely/not/a/rustc`. It verifies that:
+The bundle test accepts either the staging directory or the final `.tar.xz`. It verifies the bundle's internal `SHA256SUMS`, then runs with an almost empty environment, an empty `HOME`, and `RUSTC=/definitely/not/a/rustc`. It verifies that:
 
 - `cargo fmt --all -- --check` rejects deliberately misformatted members of a Cargo workspace.
 - `cargo fmt --all` fixes the workspace.

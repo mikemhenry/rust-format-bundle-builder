@@ -25,6 +25,12 @@ for tool in cargo cargo-fmt rustfmt; do
     [[ -x "$bundle/bin/$tool" ]] || { echo "missing executable: $tool" >&2; exit 1; }
 done
 [[ -f "$bundle/lib/libgcc_s.so.1" ]] || { echo "missing libgcc_s.so.1" >&2; exit 1; }
+[[ -f "$bundle/SHA256SUMS" ]] || { echo "missing SHA256SUMS" >&2; exit 1; }
+
+(
+    cd "$bundle"
+    sha256sum --check SHA256SUMS
+)
 
 for tool in cargo cargo-fmt rustfmt; do
     linkage=$(LD_LIBRARY_PATH="$bundle/lib" ldd "$bundle/bin/$tool")
