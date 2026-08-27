@@ -23,9 +23,21 @@ dist/rust-format-tools.tar.xz.sha256
 
 The `.sha256` sidecar contains the archive's relative filename, so a downloaded pair can be checked directly with `sha256sum -c rust-format-tools.tar.xz.sha256`. The final archive is rejected if it exceeds 25,000,000 bytes.
 
+## Skill package
+
+The human-maintained ChatGPT Skill source lives under `skill/`. The generated 13 MB formatter payload is deliberately not committed there; `scripts/build-skill.sh` verifies the already-built bundle, stages the Skill source, injects `dist/rust-format-tools.tar.xz`, exercises the staged launcher with an invalid `RUSTC`, and packages the complete installable Skill as `dist/skill.zip`.
+
+After building the bundle:
+
+```fish
+./scripts/build-skill.sh
+```
+
+The checked-in launcher and provenance intentionally pin the current payload hashes. If a future bundle changes, Skill packaging fails until those records are updated, preventing an accidentally stale Skill from being published. `build-skill.sh` injects the canonical rustfmt source patch from `patches/` into the packaged Skill for standalone provenance, avoiding a second checked-in copy that could drift.
+
 ## CI
 
-`.github/workflows/build.yml` runs the same build on `ubuntu-22.04` for pushes, pull requests, and manual dispatches, then uploads the `.tar.xz` and checksum as unwrapped GitHub Actions artifacts.
+`.github/workflows/build.yml` runs the same build on `ubuntu-22.04` for pushes, pull requests, and manual dispatches, then builds the installable Skill and uploads `skill.zip` alongside the `.tar.xz` and checksum as unwrapped GitHub Actions artifacts.
 
 The workflow pins `actions/checkout` and `actions/upload-artifact` to full commit SHAs, with the corresponding release versions kept in comments for reviewability. `.github/dependabot.yml` checks GitHub Actions dependencies quarterly and proposes updates to those immutable pins.
 
@@ -56,7 +68,8 @@ It is **not yet a promise of byte-for-byte reproducibility across time**. In par
 2. Rebase `patches/rustfmt-direct-rustc-crates.patch` onto the new Rust source.
 3. Run the build and isolated tests.
 4. Confirm the archive remains below the Skill size limit.
-5. Update the Skill's bundled asset and recorded SHA-256.
+5. Update the pinned payload/file hashes and provenance under `skill/`.
+6. Run `./scripts/build-skill.sh` and validate the resulting `dist/skill.zip`.
 
 ## Licensing
 

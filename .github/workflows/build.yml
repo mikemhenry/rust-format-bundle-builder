@@ -18,10 +18,13 @@ jobs:
       - name: Install build prerequisites
         run: |
           sudo apt-get update
-          sudo apt-get install --yes build-essential curl git patch xz-utils
+          sudo apt-get install --yes build-essential curl git patch python3 xz-utils
 
       - name: Build and validate bundle
         run: ./scripts/build-bundle.sh
+
+      - name: Build Skill package
+        run: ./scripts/build-skill.sh
 
       - name: Show bundle metadata
         run: |
@@ -39,5 +42,12 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           path: dist/rust-format-tools.tar.xz.sha256
+          archive: false
+          if-no-files-found: error
+
+      - name: Upload Skill package
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          path: dist/skill.zip
           archive: false
           if-no-files-found: error
